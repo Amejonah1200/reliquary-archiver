@@ -5,6 +5,7 @@ use std::process::Command;
 #[cfg(feature = "gui")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "self_update")]
 use self_update::cargo_crate_version;
 use tracing::info;
 

@@ -207,12 +207,16 @@ impl Exporter for OptimizerExporter {
             command_id::GetGachaInfoScRsp => {
                 debug!("detected gacha info packet");
                 if let Some(cmd) = parse(&command, "gacha info data") {
+                    info!("gacha info: {:?}", cmd);
                     self.handle_gacha_info(cmd);
                 }
             }
             command_id::DoGachaScRsp => {
                 debug!("detected gacha packet");
-                if let Some(event) = parse(&command, "gacha data").and_then(|cmd| self.handle_gacha(cmd)) {
+                if let Some(event) = parse(&command, "gacha data")
+                    .inspect(|cmd| info!("gacha packet: {:?}", cmd))
+                    .and_then(|cmd| self.handle_gacha(cmd))
+                {
                     self.emit_event(event);
                 }
             }
@@ -242,6 +246,11 @@ impl Exporter for OptimizerExporter {
                 debug!("detected confirm relic recon choice packet");
                 if let Some(event) = parse(&command, "relic recon confirmation").and_then(|cmd| self.handle_relic_box_confirm(cmd)) {
                     self.emit_event(event);
+                }
+            }
+            command_id::GetAuthkeyScRsp => {
+                if let Some(cmd) = parse(&command, "authkey info") {
+                    self.handle_authkeysc(cmd);
                 }
             }
             _ => {
@@ -301,12 +310,12 @@ impl Exporter for OptimizerExporter {
         }
 
         let export = Export {
-            source: "reliquary_archiver",
-            build: env!("CARGO_PKG_VERSION"),
+            source: "reliquary_archiver".to_string(),
+            build: env!("CARGO_PKG_VERSION").to_string(),
             version: 4,
             metadata: Metadata {
                 uid: self.uid,
-                trailblazer: self.trailblazer,
+                trailblazer: self.trailblazer.map(String::from),
             },
             gacha: self.gacha,
             materials: self.materials.values().cloned().collect(),

@@ -174,7 +174,7 @@ async fn maybe_timeout(timeout: Option<Duration>) {
 }
 
 fn write_output(output: Option<PathBuf>, export: &Export) {
-    let default_name = Local::now().format("archive_output-%Y-%m-%dT%H-%M-%S.json").to_string();
+    let default_name = Local::now().to_utc().format("archive_output-%Y-%m-%dT%H-%M-%S.json").to_string();
     let mut output_file = output.unwrap_or_else(|| PathBuf::from(&default_name));
 
     info!("exporting collected data");

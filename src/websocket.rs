@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade};
+use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Extension, Router};
 use futures::lock::Mutex;
@@ -124,6 +125,7 @@ pub async fn start_websocket_server(
             };
 
             let service = Router::new()
+                .route("/", get((StatusCode::OK, "OK")))
                 .route("/ws", get(ws_handler))
                 .layer(Extension(state.clone()))
                 .into_make_service();

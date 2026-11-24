@@ -97,6 +97,10 @@ impl MultiAccountManager {
     pub fn get_account_exporter(&self, uid: u32) -> Option<Arc<Mutex<OptimizerExporter>>> {
         self.uid_to_conv.get(&uid).and_then(|conv_id| self.exporters.get(conv_id)).cloned()
     }
+    
+    pub fn get_account_uid_from_conv_id(&self, conv_id: u32) -> Option<u32> {
+        self.uid_to_conv.iter().find_map(|(uid, cid)| (*cid == conv_id).then_some(*uid))
+    }
 
     /// Get the exporter of any one account, for when the caller doesn't care which
     #[cfg(feature = "gui")]
