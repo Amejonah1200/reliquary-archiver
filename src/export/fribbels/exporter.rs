@@ -16,7 +16,7 @@ pub struct OptimizerExporter {
     // State fields
     pub(super) initialized: bool,
     pub(super) uid: Option<u32>,
-    pub(super) trailblazer: Option<&'static str>,
+    pub(super) trailblazer: Option<Trailblazer>,
     pub(super) banners: HashMap<u32, BannerInfo>,
     pub(super) gacha: GachaFunds,
     pub(super) materials: BTreeMap<u32, Material>,
@@ -70,7 +70,7 @@ impl OptimizerExporter {
     }
 
     /// Which trailblazer the account plays, once it is known
-    pub fn trailblazer(&self) -> Option<&'static str> {
+    pub fn trailblazer(&self) -> Option<Trailblazer> {
         self.trailblazer
     }
 
@@ -163,14 +163,36 @@ fn parse<T: protobuf::Message>(command: &GameCommand, description: &str) -> Opti
         .ok()
 }
 
+impl From<Export> for OptimizerExporter {
+    fn from(export: Export) -> Self {
+        Self {
+            database: get_database(),
+            initialized: true,
+            uid: export.metadata.uid,
+            trailblazer: export.metadata.trailblazer,
+            banners: Default::default(),
+            gacha: export.gacha,
+            materials: export.materials.into_iter().map(|i| (i.id, i)).collect(),
+            light_cones: export.light_cones.into_iter().map(|i| (i.id, i)).collect(),
+            relics: export.relics.into_iter().map(|i| (i._uid, i)).collect(),
+            recon_relics: export.recon_relics,
+            characters: export.characters.into_iter().map(|i| (i.id, i)).collect(),
+            multipath_base_avatars: Default::default(),
+            unresolved_multipath_characters: Default::default(),
+            #[cfg(feature = "stream")]
+            event_channel: broadcast::channel(16).0,
+        }
+    }
+}
+
 impl Exporter for OptimizerExporter {
     type Export = Export;
 
     #[cfg(feature = "stream")]
     type LiveEvent = OptimizerEvent;
 
-    fn read_command(&mut self, command: GameCommand) {
-        match command.command_id {
+    fn read_command(&mut self, command: GameCommand) -> bool {
+        let dirty = match command.command_id {
             command_id::PlayerGetTokenScRsp => {
                 info!("detected new login attempt, resetting state");
                 self.reset();
@@ -178,42 +200,66 @@ impl Exporter for OptimizerExporter {
                 debug!("detected uid");
                 if let Some(cmd) = parse(&command, "token") {
                     self.handle_token(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::PlayerLoginScRsp => {
                 debug!("detected login info packet");
                 if let Some(cmd) = parse(&command, "login info data") {
                     self.handle_login(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::GetBagScRsp => {
                 debug!("detected inventory packet");
                 if let Some(cmd) = parse(&command, "inventory data") {
                     self.handle_inventory(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::GetAvatarDataScRsp => {
                 debug!("detected character packet");
                 if let Some(cmd) = parse(&command, "character data") {
                     self.handle_characters(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::SetAvatarEnhancedIdScRsp => {
                 debug!("detected set avatar enhanced packet");
                 if let Some(event) = parse(&command, "set avatar enhanced data").and_then(|cmd| self.handle_set_avatar_enhanced(cmd)) {
                     self.emit_event(event);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::GetGachaInfoScRsp => {
                 debug!("detected gacha info packet");
                 if let Some(cmd) = parse(&command, "gacha info data") {
                     self.handle_gacha_info(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::DoGachaScRsp => {
                 debug!("detected gacha packet");
-                if let Some(event) = parse(&command, "gacha data").and_then(|cmd| self.handle_gacha(cmd)) {
+                if let Some(event) = parse(&command, "gacha data")
+                    .inspect(|cmd| info!("gacha packet: {:?}", cmd))
+                    .and_then(|cmd| self.handle_gacha(cmd))
+                {
                     self.emit_event(event);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::PlayerSyncScNotify => {
@@ -222,6 +268,9 @@ impl Exporter for OptimizerExporter {
                     for event in self.handle_player_sync(cmd) {
                         self.emit_event(event);
                     }
+                    true
+                } else {
+                    false
                 }
             }
             command_id::GetRelicBoxDataScRsp => {
@@ -230,24 +279,42 @@ impl Exporter for OptimizerExporter {
                     for event in self.handle_relic_box_data(cmd) {
                         self.emit_event(event);
                     }
+                    true
+                } else {
+                    false
                 }
             }
             command_id::OpenRelicBoxScRsp => {
                 debug!("detected open relic recon box packet");
                 if let Some(event) = parse(&command, "relic recon drop").and_then(|cmd| self.handle_relic_box_open(cmd)) {
                     self.emit_event(event);
+                    true
+                } else {
+                    false
                 }
             }
             command_id::ConfirmRelicBoxScRsp => {
                 debug!("detected confirm relic recon choice packet");
                 if let Some(event) = parse(&command, "relic recon confirmation").and_then(|cmd| self.handle_relic_box_confirm(cmd)) {
                     self.emit_event(event);
+                    true
+                } else {
+                    false
+                }
+            }
+            command_id::GetAuthkeyScRsp => {
+                if let Some(cmd) = parse(&command, "authkey info") {
+                    self.handle_authkeysc(cmd);
+                    true
+                } else {
+                    false
                 }
             }
             _ => {
                 trace!(command_id = command.command_id, tag = command.get_command_name(), "ignored");
+                false
             }
-        }
+        };
 
         if !self.initialized && self.is_finishable() {
             self.initialized = true;
@@ -255,6 +322,9 @@ impl Exporter for OptimizerExporter {
 
             #[cfg(feature = "stream")]
             self.emit_initial_scan();
+            true
+        } else {
+            dirty
         }
     }
 
@@ -301,8 +371,8 @@ impl Exporter for OptimizerExporter {
         }
 
         let export = Export {
-            source: "reliquary_archiver",
-            build: env!("CARGO_PKG_VERSION"),
+            source: "reliquary_archiver".to_string(),
+            build: env!("CARGO_PKG_VERSION").to_string(),
             version: 4,
             metadata: Metadata {
                 uid: self.uid,

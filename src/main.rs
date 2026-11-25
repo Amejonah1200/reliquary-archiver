@@ -16,7 +16,7 @@ mod websocket;
 #[cfg(feature = "gui")]
 mod rgui;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "self_update"))]
 mod update;
 
 #[cfg(all(not(feature = "pcap"), feature = "pktmon"))]
@@ -29,6 +29,8 @@ mod logging;
 mod merge;
 mod session;
 mod stall;
+mod pull_history;
+mod state;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -74,12 +76,14 @@ struct Args {
     /// Path to output log to
     #[arg(short, long)]
     log_path: Option<PathBuf>,
-
+    
     /// Don't check for updates, only applicable on Windows
+    #[cfg(all(windows, feature = "self_update"))]
     #[arg(long)]
     no_update: bool,
 
     /// Update without asking for confirmation, only applicable on Windows
+    #[cfg(all(windows, feature = "self_update"))]
     #[arg(long)]
     always_update: bool,
 
@@ -164,7 +168,7 @@ async fn main() {
 async fn run(args: Args) {
     // Only self update on Windows, since that's the only platform we ship releases for
     // In GUI mode, the update check is handled by the GUI after it launches
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "self_update"))]
     {
         #[cfg(feature = "gui")]
         let gui_mode = !args.headless;

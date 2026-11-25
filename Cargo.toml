@@ -10,21 +10,20 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+flate2 = { version = "1.1.11", features = ["zlib-rs", "runtime_detection"], default-features = false }
 async-stream = "0.3.6"
-base64 = "0.22.1"
 clap = { version = "4.5.31", features = ["derive"] }
-chrono = "0.4.40"
+chrono = { version = "0.4.40", features = ["default", "serde"] }
 color-eyre = "0.6.3"
 protobuf = "=3.7.1" # match the protobuf version used in reliquary-codegen
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-ureq = "2.12.1"
+ureq = { version = "2.12.1", features = ["json"] }
 reliquary = { git = "https://github.com/IceDynamix/reliquary", tag = "v25.0.0", features = [
-    "proto-rqa",
+    "proto-rqa", "proto-auth"
 ] }
-ctrlc = "3.4.5"
 tokio = { version = "1.44.2", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 futures = { version = "0.3.31" }
@@ -32,14 +31,14 @@ serde_with = "3.12.0"
 open = "5.3.2"
 rfd = { optional = true, version = "0.17.2" }
 tracing-log = "0.2.0"
-axum = { optional = true, version = "0.8.3", features = ["ws", "tracing"] }
+axum = { optional = true, version = "0.8.3", features = ["ws", "tracing", "http1", "http2", "json", "macros"] }
 # unreleased 3.0: sets immediate mode on Windows (rust-pcap/pcap#381) and reports a vanished interface as its own error
 pcap = { optional = true, git = "https://github.com/rust-pcap/pcap", rev = "f3476f62e45740e84595754386612f4e354d152a", features = ["capture-stream"] }
 pcaparse = { optional = true, git = "https://github.com/traceflight/pcaparse.git", rev = "f6d0e853d959a4243ad87605425f357cad2e417a", features = ["async-trait", "tokio", "tokio-byteorder"] }
 raxis = { optional = true, git = "https://github.com/emmachase/raxis", rev = "662f22f2ef1c689478a1bb715902120200bd34ce", features = ["tokio"] }
 
 [target.'cfg(windows)'.dependencies]
-self_update = { version = "0.44.0", features = ['ureq', 'rustls'], default-features = false }
+self_update = { optional = true, version = "0.44.0", features = ['ureq', 'rustls'], default-features = false }
 pktmon = { optional = true, version = "0.6.2", features = ["tokio"] }
 windows = { optional = true, version = "0.61" }
 windows-registry = { optional = true, version = "0.6.1" }
@@ -85,4 +84,7 @@ pktmon = [
     "windows/Win32_System_Console",
     "windows/Win32_UI_WindowsAndMessaging",
     "windows/Win32_System_Registry",
+]
+self_update = [
+    "dep:self_update"
 ]

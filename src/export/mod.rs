@@ -6,7 +6,7 @@ pub mod fribbels;
 pub trait Exporter: Send + 'static {
     type Export: Send;
 
-    fn read_command(&mut self, command: GameCommand);
+    fn read_command(&mut self, command: GameCommand) -> bool;
     fn is_empty(&self) -> bool;
     fn is_initialized(&self) -> bool;
     fn export(&self) -> Option<Self::Export>;

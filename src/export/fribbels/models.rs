@@ -5,8 +5,8 @@ use serde_with::{DisplayFromStr, serde_as};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Export {
-    pub source: &'static str,
-    pub build: &'static str,
+    pub source: String,
+    pub build: String,
     pub version: u32,
     pub metadata: Metadata,
     pub gacha: GachaFunds,
@@ -17,10 +17,16 @@ pub struct Export {
     pub recon_relics: Vec<u32>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum Trailblazer {
+    Stelle,
+    Caelus
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub uid: Option<u32>,
-    pub trailblazer: Option<&'static str>,
+    pub trailblazer: Option<Trailblazer>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
@@ -138,7 +144,7 @@ pub struct Relic {
     #[serde_as(as = "DisplayFromStr")]
     pub set_id: u32,
     pub name: String,
-    pub slot: &'static str,
+    pub slot: String,
     pub rarity: u32,
     pub level: u32,
     pub mainstat: String,
@@ -223,6 +229,7 @@ pub struct Traces {
     pub stat_10: bool,
     pub special: bool,
     #[serde(skip_serializing_if = "<&bool>::not")]
+    #[serde(default)]
     pub elation_debt: bool,
 }
 

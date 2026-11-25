@@ -74,7 +74,7 @@ pub fn export_proto_relic(db: &Database, proto: &ProtoRelic) -> Option<Relic> {
     Some(Relic {
         set_id,
         name: set_name,
-        slot,
+        slot: slot.to_string(),
         rarity,
         level,
         mainstat,

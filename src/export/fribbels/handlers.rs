@@ -1,8 +1,11 @@
+use axum::BoxError;
+use futures::future::BoxFuture;
 use reliquary::network::command::proto::Avatar::Avatar as ProtoCharacter;
 use reliquary::network::command::proto::AvatarPathData::AvatarPathData;
 use reliquary::network::command::proto::ConfirmRelicBoxScRsp::ConfirmRelicBoxScRsp;
 use reliquary::network::command::proto::DoGachaScRsp::DoGachaScRsp;
 use reliquary::network::command::proto::Equipment::Equipment as ProtoLightCone;
+use reliquary::network::command::proto::GetAuthkeyScRsp::GetAuthkeyScRsp;
 use reliquary::network::command::proto::GetAvatarDataScRsp::GetAvatarDataScRsp;
 use reliquary::network::command::proto::GetBagScRsp::GetBagScRsp;
 use reliquary::network::command::proto::GetGachaInfoScRsp::GetGachaInfoScRsp;
@@ -14,11 +17,12 @@ use reliquary::network::command::proto::PlayerLoginScRsp::PlayerLoginScRsp;
 use reliquary::network::command::proto::PlayerSyncScNotify::PlayerSyncScNotify;
 use reliquary::network::command::proto::Relic::Relic as ProtoRelic;
 use reliquary::network::command::proto::SetAvatarEnhancedIdScRsp::SetAvatarEnhancedIdScRsp;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::OptimizerExporter;
 use crate::export::fribbels::converters::*;
 use crate::export::fribbels::models::*;
+use crate::pull_history::request_pulls;
 
 impl OptimizerExporter {
     pub(super) fn handle_token(&mut self, token: PlayerGetTokenScRsp) {
@@ -89,7 +93,7 @@ impl OptimizerExporter {
 
         // If it's the trailblazer, determine the gender
         if character.name == "Trailblazer" {
-            self.trailblazer = Some(if character_id % 2 == 0 { "Stelle" } else { "Caelus" });
+            self.trailblazer = Some(if character_id % 2 == 0 { Trailblazer::Stelle } else { Trailblazer::Caelus });
         }
 
         self.characters.insert(character_id, character);
@@ -335,5 +339,43 @@ impl OptimizerExporter {
 
     pub(super) fn handle_relic_box_confirm(&mut self, _confirm: ConfirmRelicBoxScRsp) -> Option<OptimizerEvent> {
         Some(OptimizerEvent::RelicBox(RelicBoxEvent::Confirmed))
+    }
+
+    pub(super) fn handle_authkeysc(&mut self, authkey_response: GetAuthkeyScRsp) {
+        info!("handling authkeysc command: {:?}", authkey_response);
+        let GetAuthkeyScRsp {
+            retcode,
+            authkey_ver,
+            sign_type,
+            authkey,
+            auth_appid,
+            ..
+        } = authkey_response;
+
+        if auth_appid != "webview_gacha" && auth_appid != "csc" {
+            trace!("auth appid is not webview_gacha or csc, ignoring.");
+            return;
+        }
+
+        if sign_type != 1 {
+            warn!("The sign_type ({sign_type} != 1) is not supported, this is unexpected. Wait for a fix.");
+            return;
+        }
+
+        if authkey_ver != 2 {
+            warn!("The authkey_ver ({authkey_ver} != 2) is not supported, this is unexpected. Wait for a fix.");
+            return;
+        }
+        if retcode != 0 {
+            warn!("authkeysc authkey reports return code {}", retcode);
+            return;
+        }
+
+        if auth_appid == "webview_gacha" {
+            info!("Fetching gacha pulls...");
+            // tokio::spawn(move || {
+            //     request_pulls(20, authkey, 11)
+            // })
+        }
     }
 }

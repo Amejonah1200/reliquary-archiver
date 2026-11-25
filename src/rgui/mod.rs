@@ -156,7 +156,7 @@ pub fn run(tap: Tap) -> Result<(), Box<dyn std::error::Error>> {
     let (port_tx, port_rx) = watch::channel::<PortCommand>(PortCommand::Open(settings.ws_port));
 
     let database = get_database();
-    let manager = Arc::new(Mutex::new(MultiAccountManager::new()));
+    let manager = Arc::new(Mutex::new(MultiAccountManager::new(state)));
 
     let state = RootState::new(manager.clone(), port_tx, settings, settings_file);
 
