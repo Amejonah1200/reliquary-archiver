@@ -28,14 +28,14 @@ pub struct ExportedState {
     timestamp: DateTime<Utc>,
     consider_compression: bool,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
-    exports: HashMap<u32, GlorifiedExport>,
+    pub(crate) exports: HashMap<u32, GlorifiedExport>,
     #[serde(skip)]
     pub dirty: bool,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlorifiedExport {
-    export: Option<Export>,
-    pulls_export: PullsExport,
+    pub(crate) export: Option<Export>,
+    pub(crate) pulls_export: PullsExport,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

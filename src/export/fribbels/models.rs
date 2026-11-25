@@ -17,10 +17,16 @@ pub struct Export {
     pub recon_relics: Vec<u32>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum Trailblazer {
+    Stelle,
+    Caelus
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub uid: Option<u32>,
-    pub trailblazer: Option<String>,
+    pub trailblazer: Option<Trailblazer>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]

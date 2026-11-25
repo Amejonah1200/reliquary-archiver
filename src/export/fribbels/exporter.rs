@@ -16,7 +16,7 @@ pub struct OptimizerExporter {
     // State fields
     pub(super) initialized: bool,
     pub(super) uid: Option<u32>,
-    pub(super) trailblazer: Option<&'static str>,
+    pub(super) trailblazer: Option<Trailblazer>,
     pub(super) banners: HashMap<u32, BannerInfo>,
     pub(super) gacha: GachaFunds,
     pub(super) materials: BTreeMap<u32, Material>,
@@ -70,7 +70,7 @@ impl OptimizerExporter {
     }
 
     /// Which trailblazer the account plays, once it is known
-    pub fn trailblazer(&self) -> Option<&'static str> {
+    pub fn trailblazer(&self) -> Option<Trailblazer> {
         self.trailblazer
     }
 
@@ -161,6 +161,28 @@ fn parse<T: protobuf::Message>(command: &GameCommand, description: &str) -> Opti
         .parse_proto()
         .inspect_err(|error| warn!(%error, "could not parse {description} command"))
         .ok()
+}
+
+impl From<Export> for OptimizerExporter {
+    fn from(export: Export) -> Self {
+        Self {
+            database: get_database(),
+            initialized: true,
+            uid: export.metadata.uid,
+            trailblazer: export.metadata.trailblazer,
+            banners: Default::default(),
+            gacha: export.gacha,
+            materials: export.materials.into_iter().map(|i| (i.id, i)).collect(),
+            light_cones: export.light_cones.into_iter().map(|i| (i.id, i)).collect(),
+            relics: export.relics.into_iter().map(|i| (i._uid, i)).collect(),
+            recon_relics: export.recon_relics,
+            characters: export.characters.into_iter().map(|i| (i.id, i)).collect(),
+            multipath_base_avatars: Default::default(),
+            unresolved_multipath_characters: Default::default(),
+            #[cfg(feature = "stream")]
+            event_channel: broadcast::channel(16).0,
+        }
+    }
 }
 
 impl Exporter for OptimizerExporter {
@@ -354,7 +376,7 @@ impl Exporter for OptimizerExporter {
             version: 4,
             metadata: Metadata {
                 uid: self.uid,
-                trailblazer: self.trailblazer.map(String::from),
+                trailblazer: self.trailblazer,
             },
             gacha: self.gacha,
             materials: self.materials.values().cloned().collect(),

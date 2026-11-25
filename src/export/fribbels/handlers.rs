@@ -93,7 +93,7 @@ impl OptimizerExporter {
 
         // If it's the trailblazer, determine the gender
         if character.name == "Trailblazer" {
-            self.trailblazer = Some(if character_id % 2 == 0 { "Stelle" } else { "Caelus" });
+            self.trailblazer = Some(if character_id % 2 == 0 { Trailblazer::Stelle } else { Trailblazer::Caelus });
         }
 
         self.characters.insert(character_id, character);

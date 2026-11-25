@@ -43,7 +43,7 @@ impl MultiAccountManager {
     pub fn new(exported_state: ExportedState) -> Self {
         let (event_tx, _) = broadcast::channel(100);
         Self {
-            exporters: HashMap::new(),
+            exporters: exported_state.exports.iter().flat_map(|(k, v)| v.export.clone().map(|e| (*k, Arc::new(Mutex::new(e.into()))))).collect(),
             state: Arc::new(RwLock::new(exported_state)),
             uid_to_conv: HashMap::new(),
             event_tx,
