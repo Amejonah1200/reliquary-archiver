@@ -9,8 +9,10 @@ use std::time::Duration;
 use chrono::Local;
 use futures::lock::Mutex;
 use futures::{FutureExt, StreamExt, future, select};
+use reliquary_archiver::export::Exporter;
 use reliquary_archiver::export::fribbels::Export;
 use tokio::pin;
+use tokio::time::MissedTickBehavior;
 use tracing::{error, info, instrument, warn};
 
 use crate::Args;
@@ -18,6 +20,7 @@ use crate::accounts::MultiAccountManager;
 use crate::capture::pipe::is_pipe;
 use crate::capture::{Replay, SourceSpec, Tap};
 use crate::session::{CaptureSession, SessionEvent};
+use crate::state::ExportedState;
 
 pub async fn run(args: Args, source: SourceSpec) {
     match capture(&args, &source).await {
@@ -55,7 +58,7 @@ impl TryFrom<&Args> for SourceSpec {
                 Tap::PcaparsePipe(path.clone()).into()
             } else {
                 Replay::Pcaparse(path.clone()).into()
-            })
+            });
         }
 
         // pcap is preferred when both backends are built in
@@ -72,7 +75,16 @@ impl TryFrom<&Args> for SourceSpec {
 
 #[instrument(skip_all)]
 async fn capture(args: &Args, source: &SourceSpec) -> Option<Export> {
-    let manager = Arc::new(Mutex::new(MultiAccountManager::new()));
+    let state = ExportedState::read_from_dir(Path::new(".")).unwrap().unwrap_or_else(|| {
+        ExportedState::new(
+            "reliquary_archiver".to_string(),
+            env!("CARGO_PKG_VERSION").to_string(),
+            4,
+            chrono::Utc::now(),
+            false,
+        )
+    });
+    let manager = Arc::new(Mutex::new(MultiAccountManager::new(state)));
 
     // Recorded captures are read from start to end, streaming only makes sense for live traffic
     #[cfg(feature = "stream")]
@@ -111,10 +123,13 @@ async fn capture(args: &Args, source: &SourceSpec) -> Option<Export> {
 
     pin!(
         let timeout_future = maybe_timeout(timeout).fuse();
+        let interval = tokio::time::interval(Duration::from_secs(10));
     );
 
-    let mut session = CaptureSession::new(manager, true);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+    let mut session = CaptureSession::new(manager.clone(), true);
+    let manager = manager.clone();
     'recv: loop {
         let packet = select! {
             packet = packets.next() => match packet {
@@ -127,6 +142,17 @@ async fn capture(args: &Args, source: &SourceSpec) -> Option<Export> {
             },
 
             _ = timeout_future => break 'recv,
+            _ = interval.tick().fuse() => {
+                let manager = manager.lock().await;
+                let mut guard = manager.state.write().await;
+                if guard.dirty {
+                    if let Some(err) = guard.write_to_dir(Path::new("."), 5) {
+                        warn!(%err);
+                    }
+                    guard.dirty = false;
+                }
+                continue 'recv;
+            }
         };
 
         for event in session.handle_packet(packet).await {
@@ -150,6 +176,24 @@ async fn capture(args: &Args, source: &SourceSpec) -> Option<Export> {
                         "This game version is not supported yet. It usually takes a few days for Reliquary Archiver to get updated for new versions. Please try again at a later point."
                     );
                     break 'recv;
+                }
+                #[cfg(feature = "stream")]
+                SessionEvent::ExporterUpdated { conv_id } if streaming => {
+                    let guard = manager.lock().await;
+                    let Some(uid) = guard.get_account_uid_from_conv_id(conv_id) else {
+                        continue 'recv;
+                    };
+                    let Some(exporter) = guard.get_account_exporter(uid) else {
+                        continue 'recv;
+                    };
+                    let exporter_guard = exporter.lock().await;
+                    if !exporter_guard.is_initialized() {
+                        continue 'recv;
+                    }
+                    let Some(export) = exporter_guard.export() else {
+                        continue 'recv;
+                    };
+                    guard.state.write().await.set_export(uid, export);
                 }
                 _ => {}
             }

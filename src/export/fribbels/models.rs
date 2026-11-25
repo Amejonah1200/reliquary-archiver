@@ -223,6 +223,7 @@ pub struct Traces {
     pub stat_10: bool,
     pub special: bool,
     #[serde(skip_serializing_if = "<&bool>::not")]
+    #[serde(default)]
     pub elation_debt: bool,
 }
 

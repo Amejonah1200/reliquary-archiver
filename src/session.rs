@@ -44,6 +44,9 @@ pub enum SessionEvent {
     Stalled,
     /// Commands are being decoded again after [`SessionEvent::Stalled`]
     Recovered,
+    ExporterUpdated {
+        conv_id: u32,
+    },
 }
 
 /// Decodes packets into commands for the exporters.
@@ -211,7 +214,9 @@ impl CaptureSession {
             events.push(SessionEvent::AccountSeen { uid });
         }
 
-        exporter.lock().await.read_command(command);
+        if exporter.lock().await.read_command(command) {
+            events.push(SessionEvent::ExporterUpdated { conv_id });
+        }
     }
 
     fn network_error_event(&mut self, error: NetworkError, source_id: u64) -> SessionEvent {
@@ -298,7 +303,7 @@ pub async fn export_from_file(replay: crate::capture::Replay) -> Option<Export> 
         }
     };
 
-    let mut session = CaptureSession::new(Arc::new(Mutex::new(MultiAccountManager::new())), false);
+    let mut session = CaptureSession::new(Arc::new(Mutex::new(MultiAccountManager::new(state))), false);
 
     while let Some(packet) = packets.next().await {
         match packet {
@@ -319,7 +324,10 @@ pub async fn export_from_file(replay: crate::capture::Replay) -> Option<Export> 
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
     use super::*;
+    use crate::state::ExportedState;
 
     /// An Ethernet/IPv4/UDP frame from the game server carrying `payload`
     fn server_frame(payload: &[u8]) -> Vec<u8> {
@@ -355,7 +363,16 @@ mod tests {
     }
 
     fn session() -> CaptureSession {
-        CaptureSession::new(Arc::new(Mutex::new(MultiAccountManager::new())), false)
+        CaptureSession::new(
+            Arc::new(Mutex::new(MultiAccountManager::new(ExportedState::new(
+                "".to_string(),
+                "".to_string(),
+                0,
+                Utc::now(),
+                false,
+            )))),
+            false,
+        )
     }
 
     /// Feeds `data` to the session once per source and collects every event

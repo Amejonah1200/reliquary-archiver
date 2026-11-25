@@ -3,12 +3,14 @@ use std::sync::Arc;
 
 use futures::lock::Mutex;
 use reliquary_archiver::export::fribbels::{OptimizerEvent, OptimizerExporter};
-use tokio::sync::broadcast;
+use tokio::sync::{RwLock, broadcast};
 #[cfg(feature = "stream")]
 use tokio::task::JoinHandle;
 use tracing::info;
 #[cfg(feature = "stream")]
 use tracing::warn;
+
+use crate::state::ExportedState;
 
 // Not every build has a subscriber that looks at the uid of lifecycle events
 #[allow(dead_code)]
@@ -24,6 +26,7 @@ pub enum AccountEvent {
 pub struct MultiAccountManager {
     /// All exporters indexed by conversation ID
     exporters: HashMap<u32, Arc<Mutex<OptimizerExporter>>>,
+    pub(crate) state: Arc<RwLock<ExportedState>>,
 
     /// Track which conversation belongs to which account UID
     uid_to_conv: HashMap<u32, u32>,
@@ -37,10 +40,11 @@ pub struct MultiAccountManager {
 }
 
 impl MultiAccountManager {
-    pub fn new() -> Self {
+    pub fn new(exported_state: ExportedState) -> Self {
         let (event_tx, _) = broadcast::channel(100);
         Self {
             exporters: HashMap::new(),
+            state: Arc::new(RwLock::new(exported_state)),
             uid_to_conv: HashMap::new(),
             event_tx,
             #[cfg(feature = "stream")]
@@ -97,7 +101,7 @@ impl MultiAccountManager {
     pub fn get_account_exporter(&self, uid: u32) -> Option<Arc<Mutex<OptimizerExporter>>> {
         self.uid_to_conv.get(&uid).and_then(|conv_id| self.exporters.get(conv_id)).cloned()
     }
-    
+
     pub fn get_account_uid_from_conv_id(&self, conv_id: u32) -> Option<u32> {
         self.uid_to_conv.iter().find_map(|(uid, cid)| (*cid == conv_id).then_some(*uid))
     }

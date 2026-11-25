@@ -15,6 +15,7 @@ use reliquary_archiver::export::fribbels::Export;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use tracing::info;
+
 use crate::pull_history::GachaPull;
 
 #[serde_as]
@@ -28,11 +29,20 @@ pub struct ExportedState {
     consider_compression: bool,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     exports: HashMap<u32, GlorifiedExport>,
+    #[serde(skip)]
+    pub dirty: bool,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlorifiedExport {
     export: Option<Export>,
+    pulls_export: PullsExport,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct PullsExport {
     pulls: Vec<GachaPull>,
+    last_token: Option<(String, DateTime<Utc>)>,
+    last_fetched: Option<DateTime<Utc>>,
 }
 
 impl PartialEq for GachaPull {
@@ -64,6 +74,7 @@ impl ExportedState {
             timestamp,
             consider_compression,
             exports: Default::default(),
+            dirty: false,
         }
     }
 
@@ -72,7 +83,7 @@ impl ExportedState {
             Err(format!("File {} does not exist", path.display()).into())
         } else if path.is_file() {
             if path.extension().is_some_and(|ext| ext == "json") {
-                let compression_advised = std::fs::metadata(path)?.len() > 1_000_000;
+                let compression_advised = std::fs::metadata(path)?.len() > 500_000;
                 let mut state: ExportedState =
                     serde_json::from_reader(std::fs::File::open(path).map_err(BoxError::from)?).map_err(BoxError::from)?;
                 state.consider_compression = compression_advised;
@@ -131,33 +142,31 @@ impl ExportedState {
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .filter(|p| {
-                if !p.exists() || p.is_file() {
+                if !(p.exists() && p.is_file()) {
                     return false;
                 }
                 let Some(name) = p.file_name().map(OsStr::to_string_lossy) else {
+                    info!("File {} has no name", p.display());
                     return false;
                 };
-                (name.ends_with(".json.gz") || p.ends_with(".json")) && name.starts_with("reliquary-state-")
+                (name.ends_with(".json.gz") || name.ends_with(".json")) && name.starts_with("reliquary-state-")
             }))
     }
 
-    pub fn write_to_dir(&self, dir_path: &Path, max_files: Option<NonZeroU8>) -> Option<BoxError> {
-        let ext = if self.consider_compression { ".json.gz" } else { ".json" };
+    #[must_use]
+    pub fn write_to_dir(&self, dir_path: &Path, max_files: u8) -> Option<BoxError> {
+        let ext = if self.consider_compression { "json.gz" } else { "json" };
         let path = dir_path.to_path_buf().join(format!(
             "reliquary-state-{}.{ext}",
             Local::now().to_utc().format("%Y-%m-%dT%H-%M-%S")
         ));
 
-        let err = if self.consider_compression {
-            serde_json::to_writer(GzEncoder::new(std::fs::File::create(&path).unwrap(), Compression::default()), &self)
-        } else {
-            serde_json::to_writer(std::fs::File::create(&path).unwrap(), &self)
-        }
-        .err()
-        .map(BoxError::from);
+        let err = self.write_to_file(&path);
 
         if err.is_none() {
-            let max_files = max_files?;
+            if max_files == 0 {
+                return None;
+            }
             let mut files = match Self::list_state_files(dir_path) {
                 Ok(iter) => iter.collect::<Vec<PathBuf>>(),
                 Err(err) => return Some(err),
@@ -167,7 +176,7 @@ impl ExportedState {
                     .expect("the entry should have a filename")
                     .cmp(b.file_name().expect("the entry should have a filename"))
             });
-            for file in files.iter().take(files.len().saturating_sub(max_files.get() as usize)) {
+            for file in files.iter().take(files.len().saturating_sub(max_files as usize)) {
                 if let Err(err) = std::fs::remove_file(file) {
                     return Some(err.into());
                 }
@@ -179,25 +188,29 @@ impl ExportedState {
     }
 
     pub fn get_or_create_export(&mut self, uid: u32) -> &mut GlorifiedExport {
+        self.dirty = true;
         self.exports.entry(uid).or_insert_with(|| GlorifiedExport {
             export: None,
-            pulls: Default::default(),
+            pulls_export: Default::default(),
         })
     }
 
     pub fn set_export(&mut self, uid: u32, export: Export) {
         self.get_or_create_export(uid).export = Some(export);
+        self.dirty = true;
     }
 
     pub fn stage_pulls(&mut self, uid: u32, pulls: Vec<GachaPull>) {
-        self.get_or_create_export(uid).pulls.extend(pulls);
+        self.get_or_create_export(uid).pulls_export.pulls.extend(pulls);
+        self.dirty = true;
     }
     pub fn commit_pulls(&mut self, uid: u32, pulls: Vec<GachaPull>) {
+        self.dirty = true;
         let export = self.get_or_create_export(uid);
 
-        let stored_pulls = mem::take(&mut export.pulls);
+        let stored_pulls = mem::take(&mut export.pulls_export.pulls);
         if stored_pulls.is_empty() {
-            export.pulls = pulls;
+            export.pulls_export.pulls = pulls;
             return;
         }
 
@@ -239,6 +252,6 @@ impl ExportedState {
             }
         }
         commited.extend(future_pulls);
-        export.pulls = commited;
+        export.pulls_export.pulls = commited;
     }
 }
